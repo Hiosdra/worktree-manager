@@ -19,13 +19,13 @@ class CreateWorktreeAction : AnAction(), DumbAware {
 
         val dialog = CreateWorktreeDialog(project)
         if (dialog.showAndGet()) {
-            val branchName = dialog.branchName
+            val branchOrCommit = dialog.branchName
             val worktreePath = dialog.worktreePath
-            val createNewBranch = dialog.createNewBranch
+            val creationMode = dialog.creationMode
             val openAfterCreation = dialog.openAfterCreation
 
             val service = WorktreeService.getInstance(project)
-            val result = service.createWorktree(branchName, worktreePath, createNewBranch)
+            val result = service.createWorktree(branchOrCommit, worktreePath, creationMode)
 
             result.onSuccess { worktreeInfo ->
                 if (openAfterCreation) {

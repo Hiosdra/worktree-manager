@@ -21,29 +21,47 @@ import javax.swing.ButtonGroup
 import javax.swing.JComponent
 import javax.swing.JPanel
 
+enum class WorktreeCreationMode {
+    CREATE_NEW_BRANCH,
+    CHECKOUT_EXISTING_BRANCH,
+    DETACHED_HEAD
+}
+
 class CreateWorktreeDialog(private val project: Project) : DialogWrapper(project) {
 
-    private val existingBranchRadio = JBRadioButton("Existing branch", true)
-    private val newBranchRadio = JBRadioButton("Create new branch", false)
+    private val existingBranchRadio = JBRadioButton("Checkout existing branch", false)
+    private val newBranchRadio = JBRadioButton("Create new branch", true)
+    private val detachedHeadRadio = JBRadioButton("Detached HEAD (from commit/tag)", false)
 
     private val branchComboBox = com.intellij.openapi.ui.ComboBox<String>()
     private val newBranchField = JBTextField(20)
+    private val commitishField = JBTextField(20)
     private val pathField = TextFieldWithBrowseButton()
     private val openAfterCreationCheckbox = JBCheckBox("Open in IDE after creation", true)
 
     private val branchLabel = JBLabel("Branch:")
     private val newBranchLabel = JBLabel("New branch name:")
+    private val commitishLabel = JBLabel("Commit/tag:")
 
     private val worktreeService = WorktreeService.getInstance(project)
 
+    val creationMode: WorktreeCreationMode
+        get() = when {
+            newBranchRadio.isSelected -> WorktreeCreationMode.CREATE_NEW_BRANCH
+            existingBranchRadio.isSelected -> WorktreeCreationMode.CHECKOUT_EXISTING_BRANCH
+            detachedHeadRadio.isSelected -> WorktreeCreationMode.DETACHED_HEAD
+            else -> WorktreeCreationMode.CREATE_NEW_BRANCH
+        }
+
     val branchName: String
-        get() = if (createNewBranch) newBranchField.text else branchComboBox.selectedItem as? String ?: ""
+        get() = when (creationMode) {
+            WorktreeCreationMode.CREATE_NEW_BRANCH -> newBranchField.text
+            WorktreeCreationMode.CHECKOUT_EXISTING_BRANCH -> branchComboBox.selectedItem as? String ?: ""
+            WorktreeCreationMode.DETACHED_HEAD -> commitishField.text
+        }
 
     val worktreePath: Path
         get() = Path.of(pathField.text)
-
-    val createNewBranch: Boolean
-        get() = newBranchRadio.isSelected
 
     val openAfterCreation: Boolean
         get() = openAfterCreationCheckbox.isSelected
@@ -58,8 +76,9 @@ class CreateWorktreeDialog(private val project: Project) : DialogWrapper(project
 
     override fun createCenterPanel(): JComponent {
         ButtonGroup().apply {
-            add(existingBranchRadio)
             add(newBranchRadio)
+            add(existingBranchRadio)
+            add(detachedHeadRadio)
         }
 
         pathField.addBrowseFolderListener(
@@ -77,34 +96,44 @@ class CreateWorktreeDialog(private val project: Project) : DialogWrapper(project
 
         // Radio buttons
         gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2
-        panel.add(existingBranchRadio, gbc)
-
-        gbc.gridy = 1
         panel.add(newBranchRadio, gbc)
 
-        // Branch selection
-        gbc.gridy = 2; gbc.gridwidth = 1
-        panel.add(branchLabel, gbc)
+        gbc.gridy = 1
+        panel.add(existingBranchRadio, gbc)
 
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        panel.add(branchComboBox, gbc)
+        gbc.gridy = 2
+        panel.add(detachedHeadRadio, gbc)
 
         // New branch name
-        gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
         panel.add(newBranchLabel, gbc)
 
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
         panel.add(newBranchField, gbc)
 
-        // Path
+        // Branch selection
         gbc.gridx = 0; gbc.gridy = 4; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        panel.add(branchLabel, gbc)
+
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+        panel.add(branchComboBox, gbc)
+
+        // Commit-ish field
+        gbc.gridx = 0; gbc.gridy = 5; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
+        panel.add(commitishLabel, gbc)
+
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
+        panel.add(commitishField, gbc)
+
+        // Path
+        gbc.gridx = 0; gbc.gridy = 6; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
         panel.add(JBLabel("Path:"), gbc)
 
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
         panel.add(pathField, gbc)
 
         // Checkbox
-        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2
+        gbc.gridx = 0; gbc.gridy = 7; gbc.gridwidth = 2
         panel.add(openAfterCreationCheckbox, gbc)
 
         // Set preferred width (~30% wider than default)
@@ -126,11 +155,15 @@ class CreateWorktreeDialog(private val project: Project) : DialogWrapper(project
 
     private fun setupListeners() {
         // Update visibility when radio buttons change
+        newBranchRadio.addActionListener {
+            updateVisibility()
+            updateDefaultPath()
+        }
         existingBranchRadio.addActionListener {
             updateVisibility()
             updateDefaultPath()
         }
-        newBranchRadio.addActionListener {
+        detachedHeadRadio.addActionListener {
             updateVisibility()
             updateDefaultPath()
         }
@@ -142,21 +175,51 @@ class CreateWorktreeDialog(private val project: Project) : DialogWrapper(project
             override fun removeUpdate(e: javax.swing.event.DocumentEvent?) = updateDefaultPath()
             override fun changedUpdate(e: javax.swing.event.DocumentEvent?) = updateDefaultPath()
         })
+        commitishField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) = updateDefaultPath()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) = updateDefaultPath()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) = updateDefaultPath()
+        })
 
         // Set initial path
         updateDefaultPath()
     }
 
     private fun updateVisibility() {
-        val existing = existingBranchRadio.isSelected
-        branchLabel.isVisible = existing
-        branchComboBox.isVisible = existing
-        newBranchLabel.isVisible = !existing
-        newBranchField.isVisible = !existing
+        when (creationMode) {
+            WorktreeCreationMode.CREATE_NEW_BRANCH -> {
+                newBranchLabel.isVisible = true
+                newBranchField.isVisible = true
+                branchLabel.isVisible = false
+                branchComboBox.isVisible = false
+                commitishLabel.isVisible = false
+                commitishField.isVisible = false
+            }
+            WorktreeCreationMode.CHECKOUT_EXISTING_BRANCH -> {
+                newBranchLabel.isVisible = false
+                newBranchField.isVisible = false
+                branchLabel.isVisible = true
+                branchComboBox.isVisible = true
+                commitishLabel.isVisible = false
+                commitishField.isVisible = false
+            }
+            WorktreeCreationMode.DETACHED_HEAD -> {
+                newBranchLabel.isVisible = false
+                newBranchField.isVisible = false
+                branchLabel.isVisible = false
+                branchComboBox.isVisible = false
+                commitishLabel.isVisible = true
+                commitishField.isVisible = true
+            }
+        }
     }
 
     private fun updateDefaultPath() {
-        val branch = if (createNewBranch) newBranchField.text else branchComboBox.selectedItem as? String
+        val branch = when (creationMode) {
+            WorktreeCreationMode.CREATE_NEW_BRANCH -> newBranchField.text
+            WorktreeCreationMode.CHECKOUT_EXISTING_BRANCH -> branchComboBox.selectedItem as? String
+            WorktreeCreationMode.DETACHED_HEAD -> commitishField.text
+        }
         if (!branch.isNullOrBlank()) {
             val defaultPath = worktreeService.getDefaultWorktreePath(branch)
             if (defaultPath != null) {
@@ -168,10 +231,17 @@ class CreateWorktreeDialog(private val project: Project) : DialogWrapper(project
     override fun doValidate(): ValidationInfo? {
         val branch = branchName
         if (branch.isBlank()) {
-            return ValidationInfo(
-                "Branch name is required",
-                if (createNewBranch) newBranchField else branchComboBox
-            )
+            val errorComponent = when (creationMode) {
+                WorktreeCreationMode.CREATE_NEW_BRANCH -> newBranchField
+                WorktreeCreationMode.CHECKOUT_EXISTING_BRANCH -> branchComboBox
+                WorktreeCreationMode.DETACHED_HEAD -> commitishField
+            }
+            val errorMessage = when (creationMode) {
+                WorktreeCreationMode.CREATE_NEW_BRANCH -> "Branch name is required"
+                WorktreeCreationMode.CHECKOUT_EXISTING_BRANCH -> "Branch selection is required"
+                WorktreeCreationMode.DETACHED_HEAD -> "Commit/tag is required"
+            }
+            return ValidationInfo(errorMessage, errorComponent)
         }
 
         val path = pathField.text
@@ -184,8 +254,8 @@ class CreateWorktreeDialog(private val project: Project) : DialogWrapper(project
             return ValidationInfo("Path already exists", pathField)
         }
 
-        // Check if branch already has a worktree
-        if (!createNewBranch) {
+        // Check if branch already has a worktree (only for existing branch mode)
+        if (creationMode == WorktreeCreationMode.CHECKOUT_EXISTING_BRANCH) {
             val existingWorktrees = worktreeService.listWorktrees()
             val branchInUse = existingWorktrees.find { it.branch == branch }
             if (branchInUse != null) {
