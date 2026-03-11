@@ -13,6 +13,7 @@ import git4idea.commands.Git
 import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import git4idea.repo.GitRepositoryManager
+import org.metastacks.worktree.ui.WorktreeCreationMode
 import java.nio.file.Path
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
@@ -280,7 +281,7 @@ class WorktreeServiceImpl(private val project: Project) : WorktreeService, Dispo
         }
     }
 
-    override fun createWorktree(branch: String, path: Path, createBranch: Boolean): Result<WorktreeInfo> {
+    override fun createWorktree(branchOrCommit: String, path: Path, mode: WorktreeCreationMode): Result<WorktreeInfo> {
         val repository = repositoryManager.repositories.firstOrNull()
             ?: return Result.failure(IllegalStateException("No git repository found"))
 
@@ -297,12 +298,20 @@ class WorktreeServiceImpl(private val project: Project) : WorktreeService, Dispo
         }
 
         val args = mutableListOf("add")
-        if (createBranch) {
-            args.addAll(listOf("-b", branch))
-        }
-        args.add(path.toString())
-        if (!createBranch) {
-            args.add(branch)
+        when (mode) {
+            WorktreeCreationMode.CREATE_NEW_BRANCH -> {
+                args.addAll(listOf("-b", branchOrCommit))
+                args.add(path.toString())
+            }
+            WorktreeCreationMode.CHECKOUT_EXISTING_BRANCH -> {
+                args.add(path.toString())
+                args.add(branchOrCommit)
+            }
+            WorktreeCreationMode.DETACHED_HEAD -> {
+                args.add("--detach")
+                args.add(path.toString())
+                args.add(branchOrCommit)
+            }
         }
 
         val (success, output) = runGitCommand(root, GitCommand.WORKTREE, *args.toTypedArray())

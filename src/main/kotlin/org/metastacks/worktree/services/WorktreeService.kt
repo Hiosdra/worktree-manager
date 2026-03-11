@@ -1,6 +1,7 @@
 package org.metastacks.worktree.services
 
 import com.intellij.openapi.project.Project
+import org.metastacks.worktree.ui.WorktreeCreationMode
 import java.nio.file.Path
 
 /**
@@ -24,12 +25,12 @@ interface WorktreeService {
     /**
      * Creates a new worktree.
      *
-     * @param branch The branch to checkout in the new worktree
+     * @param branchOrCommit The branch name or commit-ish to checkout in the new worktree
      * @param path The path where the worktree will be created
-     * @param createBranch If true, creates a new branch; if false, uses existing branch
+     * @param mode The creation mode: CREATE_NEW_BRANCH, CHECKOUT_EXISTING_BRANCH, or DETACHED_HEAD
      * @return The created WorktreeInfo, or null if creation failed
      */
-    fun createWorktree(branch: String, path: Path, createBranch: Boolean): Result<WorktreeInfo>
+    fun createWorktree(branchOrCommit: String, path: Path, mode: WorktreeCreationMode): Result<WorktreeInfo>
 
     /**
      * Removes a worktree.
